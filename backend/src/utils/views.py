@@ -1,3 +1,4 @@
+from src.domain.rules import CURRENT as CURRENT_RULE
 from src.utils.time import iso
 
 
@@ -11,6 +12,7 @@ def run(item, detail=False):
                  'author': item.author, 'review': item.review, 'decision': item.decision,
                  'created_at': iso(item.created_at), 'finished_at': iso(item.finished_at),
                  'scheduled_at': iso(item.scheduled_at), 'schedule_id': item.schedule_id,
+                 'rule_version': item.rule_version or CURRENT_RULE,
                  'has_export': bool(item.export_file), 'error': item.error}
     if detail:
         item_view.update(params=item.params, result=item.result, review_note=item.review_note)
@@ -27,3 +29,21 @@ def schedule(item):
 def delivery(item):
     return {'id': item.id, 'run_id': item.run_id, 'recipient': item.recipient,
             'state': item.state, 'detail': item.detail, 'created_at': iso(item.created_at)}
+
+
+def handoff_report(item, detail=False):
+    view = {'id': item.id, 'station': item.station, 'report_no': item.report_no,
+            'batch_id': item.batch_id, 'rule_version': item.rule_version, 'state': item.state,
+            'headline': item.headline, 'author': item.author, 'created_at': iso(item.created_at),
+            'params': item.params}
+    if detail:
+        view['result'] = item.result
+    return view
+
+
+def handoff_rejection(station, report_no, verification, author):
+    """退回结果不入库，沿用报告字段形状返回给提交方核对。"""
+    return {'id': None, 'station': station, 'report_no': report_no, 'batch_id': None,
+            'rule_version': verification['rule_version'], 'state': verification['state'],
+            'headline': verification['headline'], 'author': author, 'created_at': None,
+            'params': verification['params'], 'result': verification['result']}

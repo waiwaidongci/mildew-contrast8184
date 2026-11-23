@@ -28,3 +28,19 @@ class ScheduleRequest(RunRequest):
     recipient: str = Field(min_length=1, max_length=100)
     first_at: datetime
     repeat_daily: bool = False
+
+
+class HandoffClaim(Request):
+    ranking: list[dict]
+    positive_hits: list[str] = Field(max_length=5000)
+    negative_hits: list[str] = Field(max_length=5000)
+
+
+class HandoffRequest(Request):
+    station: str = Field(min_length=1, max_length=80)
+    report_no: str = Field(min_length=1, max_length=80)
+    batch_key: str | None = Field(default=None, max_length=120)
+    rule_version: str = Field(min_length=1, max_length=20)
+    params: dict = Field(default_factory=dict)
+    rows: list[dict] = Field(min_length=1, max_length=5000)
+    claimed: HandoffClaim

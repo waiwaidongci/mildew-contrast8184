@@ -1,5 +1,20 @@
 """档案库房巡检筛查的共享字段、参数和页面文案。"""
 
+from .rules import CURRENT as _CURRENT_RULE
+from .rules import get as _get_rule
+
+_PARAM_HELP = {
+    "humidity_threshold": "达到此值归入高湿，低于此值归入低于高湿切分点。",
+    "smoothing": "每组对命中和未命中各加入 α，保留负组零命中的模式。",
+    "min_positive_count": "见霉斑的巡检中，至少有几条同时符合该模式的全部条件。",
+    "min_total_count": "两组原始命中数之和须达到此值。",
+    "min_growth": "保留正组与负组平滑支持度之比达到此值的模式。",
+}
+_PARAMS = [
+    {**param, "required": True, "help": _PARAM_HELP[param["key"]]}
+    for param in _get_rule(_CURRENT_RULE).PARAMS
+]
+
 
 SPEC = {
     "title": "档案库房霉斑伴随条件筛查",
@@ -23,7 +38,9 @@ SPEC = {
         "用默认的 1.5 倍增长门槛运行，确认有霉斑 16 条、未见霉斑 24 条。",
         "在「伴随模式与证据」找到「高湿且风口遮挡」，核对正组命中 9 条、负组命中 1 条。",
         "用模式编号查巡检证据，复核 PQ-20261116-07 的湿度、风口和架位。",
-        "在「现场复核单」登记待检查的架位与设施，由设施组在「排查清单交接」下载结果。",
+        "在「现场复核单」登记待检查的架位与设施。",
+        "外站按同一口径生成交接包后在「排查清单交接」提交，本站按包内规则版本独立验算，"
+        "只保留验算通过的报告。",
     ],
     "methodology": [
         "每个巡检单号计一条记录。见霉斑为正组，未见霉斑为负组。湿度达到切分点即计高湿，"
@@ -55,18 +72,7 @@ SPEC = {
         {"key": "maintenance_pending", "label": "设施报修待结", "type": "bool", "required": True},
         {"key": "mildew_observed", "label": "见霉斑", "type": "bool", "required": True},
     ],
-    "params": [
-        {"key": "humidity_threshold", "label": "高湿切分点（%）", "type": "number", "required": True,
-         "min": 0, "max": 100, "default": 65, "help": "达到此值归入高湿，低于此值归入低于高湿切分点。"},
-        {"key": "smoothing", "label": "平滑量 α", "type": "number", "required": True,
-         "min": 0.01, "max": 10, "default": 0.5, "help": "每组对命中和未命中各加入 α，保留负组零命中的模式。"},
-        {"key": "min_positive_count", "label": "正组最少命中", "type": "int", "required": True,
-         "min": 1, "max": 5000, "default": 3, "help": "见霉斑的巡检中，至少有几条同时符合该模式的全部条件。"},
-        {"key": "min_total_count", "label": "两组最少命中合计", "type": "int", "required": True,
-         "min": 1, "max": 5000, "default": 5, "help": "两组原始命中数之和须达到此值。"},
-        {"key": "min_growth", "label": "最低增长倍数", "type": "number", "required": True,
-         "min": 1.01, "max": 5000, "default": 1.5, "help": "保留正组与负组平滑支持度之比达到此值的模式。"},
-    ],
+    "params": _PARAMS,
     "fixture": {"humidity_threshold": 68, "smoothing": 1, "min_total_count": 6},
     "axes": "横轴为增长倍数最高的模式编号，纵轴为正组与负组的平滑支持度之比。",
 }

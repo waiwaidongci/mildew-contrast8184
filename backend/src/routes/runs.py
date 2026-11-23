@@ -6,6 +6,7 @@ from src.config.database import connection
 from src.config.settings import ARTIFACTS
 from src.constants.enums import Review, Role, Status
 from src.controllers.auth import allow, current
+from src.domain.rules import CURRENT as CURRENT_RULE
 from src.domain.spec import SPEC
 from src.models.identity import User
 from src.models.jobs import Run
@@ -36,7 +37,8 @@ def create(body: RunRequest, db: Session = Depends(connection),
            actor: User = Depends(allow(Role.ADMIN, Role.ANALYST))):
     if not db.get(Dataset, body.dataset_id):
         raise HTTPException(404, '找不到指定的数据批次')
-    item = Run(name=body.name, dataset_id=body.dataset_id, params=normalize_params(body.params), author=actor.username)
+    item = Run(name=body.name, dataset_id=body.dataset_id, params=normalize_params(body.params),
+               rule_version=CURRENT_RULE, author=actor.username)
     db.add(item)
     db.flush()
     record(db, actor.username, 'analysis.queued', item.id, dataset_id=item.dataset_id)

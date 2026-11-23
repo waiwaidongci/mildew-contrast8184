@@ -19,4 +19,9 @@ export const workspace = {
   schedule: data => call('/schedules', data),
   disable: id => call(`/schedules/${id}/disable`, {}),
   download: (path, filename) => saveFile(path, session.token, filename),
+  handoffRules: () => call('/handoff/rules'),
+  handoffReports: query => call(`/handoff/reports${query || ''}`),
+  handoffReport: id => call(`/handoff/reports/${id}`),
+  importHandoff: data => call('/handoff', data),
+  handoffTemplate: () => saveFile('/handoff/template', session.token, '交接包示例.json'),
 };

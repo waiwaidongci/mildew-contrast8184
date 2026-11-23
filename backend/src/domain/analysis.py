@@ -2,17 +2,11 @@
 
 from collections import Counter, defaultdict
 from datetime import date
-from fractions import Fraction
-from itertools import combinations
 
+from .rules import CURRENT, get as get_rule
 from .spec import SPEC
 
 
-_CONDITION_LABELS = {
-    "high_humidity": ("低于高湿切分点", "高湿"),
-    "vent_blocked": ("风口未遮挡", "风口遮挡"),
-    "maintenance_pending": ("无待结报修", "设施报修待结"),
-}
 _FIELDS = SPEC["fields"]
 _PATTERN_COLUMNS = (
     ("pattern_id", "模式编号"), ("conditions", "伴随条件"), ("size", "条件数"),
@@ -31,6 +25,14 @@ def _bounded(value, field):
     if type(value) not in allowed or not field["min"] <= value <= field["max"]:
         raise ValueError(f"{field['label']}须为 {field['min']} 至 {field['max']} 范围内的有效数值")
     return value
+
+
+def normalize_params(values, fields):
+    """按指定规则版本的参数口径补默认值并校验范围。"""
+    return {
+        field["key"]: _bounded(values.get(field["key"], field["default"]), field)
+        for field in fields
+    }
 
 
 def validate_rows(rows):
@@ -71,80 +73,73 @@ def validate_rows(rows):
     return validated
 
 
-def _row_patterns(row, humidity_threshold):
-    conditions = (
-        ("high_humidity", row["humidity"] >= humidity_threshold),
-        ("vent_blocked", row["vent_blocked"]),
-        ("maintenance_pending", row["maintenance_pending"]),
-    )
-    return tuple((condition,) for condition in conditions) + tuple(combinations(conditions, 2))
-
-
-def _score_patterns(hits, positives, negatives, params):
-    alpha = Fraction(str(params["smoothing"]))
-    minimum_growth = Fraction(str(params["min_growth"]))
-    eligible = []
-    for pattern, counts in hits.items():
-        positive, negative = counts[True], counts[False]
-        if positive < params["min_positive_count"] or positive + negative < params["min_total_count"]:
-            continue
-        positive_smoothed = (positive + alpha) / (positives + 2 * alpha)
-        negative_smoothed = (negative + alpha) / (negatives + 2 * alpha)
-        growth = positive_smoothed / negative_smoothed
-        if growth >= minimum_growth:
-            eligible.append((pattern, growth, positive, negative, positive_smoothed, negative_smoothed))
-    eligible.sort(key=lambda item: (-item[1], -item[2], len(item[0]), item[0]))
-    return eligible
-
-
 def _table(title, columns, rows):
     return {"title": title, "columns": [{"key": key, "label": label} for key, label in columns], "rows": rows}
 
 
-def analyze(rows, normalized_params):
-    """对同一批有效巡检计算可重跑的单项及成对条件排名。"""
+def _rank_signature(pattern, score):
+    """排名对账只用条件、正负取值与两组整数命中数，避免浮点差异导致误判。
+
+    条件带取值，因此「高湿」与「低于高湿切分点」不会被当成同一个条件。
+    """
+    return {"conditions": [[field, value] for field, value in sorted(pattern)],
+            "positive_count": score["positive_count"],
+            "negative_count": score["negative_count"],
+            "growth": float(score["growth"])}
+
+
+def evaluate(rows, normalized_params, version=CURRENT):
+    """按指定规则版本计算，返回页面结果和可独立复核的排名与命中单号。"""
+    rule = get_rule(version)
     records = validate_rows(rows)
-    params = {
-        field["key"]: _bounded(normalized_params.get(field["key"], field["default"]), field)
-        for field in SPEC["params"]
-    }
+    params = normalize_params(normalized_params, rule.PARAMS)
+    labels = rule.condition_labels()
     total = len(records)
     positives = sum(row["mildew_observed"] for row in records)
     negatives = total - positives
     threshold = params["humidity_threshold"]
     patterns = []
     evidence = []
+    ranking = []
+    positive_hits = []
+    negative_hits = []
     if positives and negatives:
         hits = defaultdict(Counter)
-        patterns_by_id = {}
+        matching_by_id = {}
         for row in records:
-            matching = _row_patterns(row, threshold)
-            patterns_by_id[row["inspection_id"]] = matching
+            matching = rule.row_patterns(row, params)
+            matching_by_id[row["inspection_id"]] = matching
             for pattern in matching:
                 hits[pattern][row["mildew_observed"]] += 1
 
         pattern_ids = {}
-        for rank, score in enumerate(_score_patterns(hits, positives, negatives, params), start=1):
-            pattern, growth, positive, negative, positive_smoothed, negative_smoothed = score
+        selected = set()
+        for rank, score in enumerate(rule.score(hits, positives, negatives, params), start=1):
+            pattern = score["pattern"]
+            positive, negative = score["positive_count"], score["negative_count"]
             pattern_id = f"P{rank:02d}"
             pattern_ids[pattern] = pattern_id
+            selected.add(pattern)
+            ranking.append(_rank_signature(pattern, score))
             patterns.append({
                 "pattern_id": pattern_id,
-                "conditions": "且".join(_CONDITION_LABELS[field][value] for field, value in pattern),
+                "conditions": "且".join(labels[field][value] for field, value in pattern),
                 "size": len(pattern),
                 "positive_count": positive,
                 "negative_count": negative,
                 "positive_support": positive / positives,
                 "negative_support": negative / negatives,
-                "positive_smoothed": float(positive_smoothed),
-                "negative_smoothed": float(negative_smoothed),
-                "growth": float(growth),
+                "positive_smoothed": float(score["positive_smoothed"]),
+                "negative_smoothed": float(score["negative_smoothed"]),
+                "growth": float(score["growth"]),
             })
         for row in sorted(records, key=lambda row: (row["inspection_date"], row["inspection_id"])):
-            matching = sorted(pattern_ids[pattern] for pattern in patterns_by_id[row["inspection_id"]]
-                              if pattern in pattern_ids)
-            if matching:
-                evidence.append({**row, "pattern_ids": "、".join(matching)})
+            matched = matching_by_id[row["inspection_id"]]
+            if not selected.intersection(matched):
+                continue
+            hit_ids = sorted(pattern_ids[pattern] for pattern in matched if pattern in pattern_ids)
+            evidence.append({**row, "pattern_ids": "、".join(hit_ids)})
+            (positive_hits if row["mildew_observed"] else negative_hits).append(row["inspection_id"])
 
     if not positives or not negatives:
         missing_group = "见霉斑" if not positives else "未见霉斑"
@@ -154,7 +149,7 @@ def analyze(rows, normalized_params):
     else:
         headline = "本批巡检中没有模式同时达到命中数与增长倍数门槛。"
 
-    return {
+    result = {
         "state": "warning" if not positives or not negatives or patterns else "ok",
         "headline": headline,
         "note": (
@@ -182,3 +177,18 @@ def analyze(rows, normalized_params):
             "复核时查看同库房同期记录、连续湿度读数和设施报修单，再登记检查安排。"
         )}],
     }
+    checks = {
+        "version": version,
+        "params": params,
+        "ranking": ranking,
+        "positive_hits": sorted(positive_hits),
+        "negative_hits": sorted(negative_hits),
+        "positive_total": positives,
+        "negative_total": negatives,
+    }
+    return result, checks
+
+
+def analyze(rows, normalized_params, version=CURRENT):
+    """对同一批有效巡检计算可重跑的单项及成对条件排名。"""
+    return evaluate(rows, normalized_params, version)[0]

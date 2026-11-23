@@ -15,3 +15,7 @@ class Review(StrEnum):
     PENDING = 'pending'
     ACCEPTED = 'accepted'
     RETURNED = 'returned'
+
+class Handoff(StrEnum):
+    VERIFIED = 'verified'
+    RETURNED = 'returned'

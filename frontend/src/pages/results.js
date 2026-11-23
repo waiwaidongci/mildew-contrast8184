@@ -43,7 +43,7 @@ export async function results(route, refresh) {
   return el('div',{},el('div',{class:'two-col'},el('div',{class:'wide-panel'},analysis),
     el('aside',{class:'sidebar-panel'},panel('运行来源',history,
       source && link(source.name,`#inputs/${source.id}`),p(date(job.finished_at),'subtle'),
-      el('dl',{class:'dictionary'},inputs)),
+      el('dl',{class:'dictionary'},el('div',{},el('dt',{},'规则版本'),el('dd',{},job.rule_version)),inputs)),
     result && panel(spec.decision, pill(REVIEW[job.review],job.review),
       link('打开复核记录',`#review/${job.id}`,{class:'quiet'})))));
 }
